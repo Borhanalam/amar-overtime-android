@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0f172a">
+  <title>আমার ওভার টাইম</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="appbar">
+  <div class="brand-wrap">
+    <div class="brand-icon">⏱</div>
+    <div><h1>আমার ওভার টাইম</h1><p>Developed by <b>BORHAN</b></p></div>
+  </div>
+  <div class="clock" id="clock">--:--:--</div>
+</header>
+
+<main>
+  <section id="homePage" class="page active">
+    <div class="hero card">
+      <div><small>সক্রিয় কর্মী</small><h2 id="activeWorkerName">আমার হিসাব</h2><p id="activeWorkerMeta">এই মাসের বেতন ও ওভারটাইম</p></div>
+      <button class="icon-btn" id="quickWorkerBtn" title="Worker">👤</button>
+    </div>
+    <section class="dashboard" id="dashboard"></section>
+    <div class="section-title"><h2>আজকের ডিউটি</h2><button class="text-btn" data-page="dutyPage">+ যোগ করুন</button></div>
+    <section class="card today-card" id="todayCard"></section>
+    <div class="section-title"><h2>সাম্প্রতিক রেকর্ড</h2><button class="text-btn" data-page="recordsPage">সব দেখুন</button></div>
+    <section class="card" id="recentRecords"></section>
+  </section>
+
+  <section id="dutyPage" class="page">
+    <section class="card"><h2>দৈনিক ডিউটি যোগ করুন</h2>
+      <form id="dutyForm"><div class="grid">
+        <label>তারিখ<input id="date" type="date" required></label>
+        <label>ডিউটির ধরন<select id="dutyType"><option value="day">Day Duty</option><option value="night">Night Duty</option></select></label>
+        <label>স্ট্যাটাস<select id="status"><option value="present">Present / Worked</option><option value="holiday">Holiday</option><option value="leave">Leave</option><option value="sick">Sick Leave</option><option value="absent">Absent</option></select></label>
+        <label>In Time<input id="inTime" type="time"></label>
+        <label>Out Time<input id="outTime" type="time"></label>
+        <label>নোট<input id="notes" type="text" placeholder="ঐচ্ছিক"></label>
+      </div><div class="actions"><button type="submit">💾 ডিউটি সেভ করুন</button><button type="button" class="secondary" id="clearBtn">Clear</button></div></form>
+      <p class="note">Day: 8:00 AM–5:00 PM, ১ ঘণ্টা lunch deduction। Night: 8:00 PM–4:00 AM। Holiday duty পুরোটা OT হিসেবে গণনা হয়।</p>
+    </section>
+  </section>
+
+  <section id="recordsPage" class="page">
+    <section class="card"><div class="table-head"><div><h2>দৈনিক রেকর্ড</h2><small id="recordCount"></small></div><div class="actions-inline"><button class="secondary" id="exportBtn">CSV</button><button class="danger" id="clearAllBtn">সব মুছুন</button></div></div>
+      <input id="recordSearch" class="search" type="search" placeholder="তারিখ বা স্ট্যাটাস দিয়ে খুঁজুন…">
+      <div class="table-wrap"><table><thead><tr><th>তারিখ</th><th>ধরন</th><th>স্ট্যাটাস</th><th>In</th><th>Out</th><th>Regular</th><th>OT</th><th>Late</th><th>Night</th><th></th></tr></thead><tbody id="records"></tbody></table></div>
+    </section>
+  </section>
+
+  <section id="settingsPage" class="page">
+    <section class="card"><h2>বেতন ও OT সেটিংস</h2><div class="grid">
+      <label>মাসিক বেতন (৳)<input id="salary" type="number" min="0" step="0.01" placeholder="15000"></label>
+      <label>Working Days<input id="salaryDays" type="number" min="1" value="26"></label>
+      <label>Regular Hours/Day<input id="regularHours" type="number" min="1" value="8"></label>
+      <label>OT Multiplier<input id="otMultiplier" type="number" value="2" readonly></label>
+      <label>Attendance Bonus (৳)<input id="attendanceBonus" type="number" min="0" value="625"></label>
+      <label>Late Limit (min)<input id="lateLimit" type="number" min="0" value="15"></label>
+      <label>Night Bill (৳)<input id="nightBill" type="number" min="0" value="100"></label>
+    </div><p class="formula">OT rate = (Salary × 56.05% × 2) ÷ (Working Days × Regular Hours)</p></section>
+
+    <section class="card"><h2>Worker Management</h2><div class="worker-add"><input id="workerName" type="text" placeholder="Worker-এর নাম"><button id="addWorkerBtn">+ Add Worker</button></div><div id="workerList" class="worker-list"></div></section>
+
+    <section class="card"><h2>Backup & Restore</h2><p class="note">সব Worker, Salary Settings এবং Duty Records একসাথে JSON ফাইলে backup করুন। পরে একই app-এ Restore করা যাবে।</p><div class="actions"><button id="backupBtn">⬇ Backup</button><button class="secondary" id="restoreBtn">⬆ Restore</button></div></section>
+    <section class="card about"><h2>আমার ওভার টাইম</h2><p>Developed by <b>BORHAN</b></p><p class="note">Version 1.1 • Offline-first • আপনার ডেটা এই ডিভাইসেই সংরক্ষিত থাকে।</p></section>
+  </section>
+</main>
+
+<nav class="bottom-nav"><button class="nav-item active" data-page="homePage"><span>⌂</span>হোম</button><button class="nav-item" data-page="dutyPage"><span>＋</span>ডিউটি</button><button class="nav-item" data-page="recordsPage"><span>☷</span>রেকর্ড</button><button class="nav-item" data-page="settingsPage"><span>⚙</span>সেটিংস</button></nav>
+
+<div id="toast" class="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
