@@ -1,163 +1,46 @@
-const KEY="workerSalaryTracker_v1";
-let data=JSON.parse(localStorage.getItem(KEY)||'{"settings":{},"records":[]}');
-const $=id=>document.getElementById(id);
-
-function todayLocal(){
-  const d=new Date(), off=d.getTimezoneOffset();
-  return new Date(d.getTime()-off*60000).toISOString().slice(0,10);
-}
-$("date").value=todayLocal();
-
-function settings(){
-  return {
-    salary:+$("salary").value||0,
-    salaryDays:+$("salaryDays").value||26,
-    regularHours:+$("regularHours").value||8,
-    otMultiplier:2,
-    attendanceBonus:+$("attendanceBonus").value||625,
-    lateLimit:+$("lateLimit").value||15,
-    nightBill:+$("nightBill").value||100
-  };
-}
-function save(){data.settings=settings();localStorage.setItem(KEY,JSON.stringify(data));render();}
-function loadSettings(){
-  const s=data.settings||{};
-  for(const k of ["salary","salaryDays","regularHours","otMultiplier","attendanceBonus","lateLimit","nightBill"])
-    if(s[k]!==undefined) $(k).value=s[k];
-}
-loadSettings();
-
-["salary","salaryDays","regularHours","otMultiplier","attendanceBonus","lateLimit","nightBill"].forEach(id=>$(id).addEventListener("input",save));
-
-function minutes(t){const [h,m]=t.split(":").map(Number);return h*60+m}
-function duration(inT,outT){
-  let a=minutes(inT),b=minutes(outT);
-  if(b<=a)b+=1440;
-  return b-a;
-}
-function money(n){return "৳"+n.toFixed(2)}
-function fmtHours(n){return n.toFixed(2)}
-
-function calculate(r){
-  const s=settings();
-  let regular=0, ot=0, late=0, early=false, night=0;
-  if(["leave","sick","absent"].includes(r.status)) return {regular,ot,late,early,night};
-
-  if(!r.inTime||!r.outTime) return {regular,ot,late,early,night};
-  const total=duration(r.inTime,r.outTime);
-
-  // Night duty: 8 PM to 4 AM, no break. Holiday work is all OT.
-  if(r.dutyType==="night"){
-    if(r.status==="holiday") ot=total/60;
-    else { regular=Math.min(s.regularHours,total/60); ot=Math.max(0,total/60-s.regularHours); }
-    if(minutes(r.outTime)<=minutes(r.inTime) ? minutes(r.outTime)<=240 : false){}
-    // Night bill: duty crosses midnight (out time is after 00:00) or total duty crosses 00:00.
-    if(total>0 && minutes(r.outTime)<minutes(r.inTime)) night=s.nightBill;
-  } else {
-    // Day duty: expected 8 AM start, 5 PM end, 1-hour lunch.
-    const inM=minutes(r.inTime), outM=minutes(r.outTime);
-    if(inM>480) late=inM-480;
-    if(r.status!=="holiday" && outM<1020) early=true;
-    if(r.status==="holiday") ot=total/60;
-    else {
-      regular=Math.min(s.regularHours, Math.max(0,total/60-1)); // one-hour lunch
-      // OT begins after 5 PM, independent of the lunch deduction.
-      if(outM>1020) ot=(outM-1020)/60;
-    }
-    // Any duty whose out time passes midnight gets the night bill.
-    if(outM<inM) night=s.nightBill;
-  }
-  return {regular,ot,late,early,night};
-}
-
-$("dutyType").addEventListener("change",()=>{
-  if($("dutyType").value==="day"){ $("inTime").value="08:00"; $("outTime").value="17:00"; }
-  else { $("inTime").value="20:00"; $("outTime").value="04:00"; }
-});
-$("status").addEventListener("change",()=>{
-  if($("status").value==="holiday") $("dutyType").disabled=false;
-});
-
-$("dutyForm").addEventListener("submit",e=>{
-  e.preventDefault();
-  const r={
-    id:Date.now(),
-    date:$("date").value,
-    dutyType:$("dutyType").value,
-    status:$("status").value,
-    inTime:$("inTime").value,
-    outTime:$("outTime").value,
-    notes:$("notes").value
-  };
-  const existing=data.records.findIndex(x=>x.date===r.date);
-  if(existing>=0) data.records[existing]=r; else data.records.push(r);
-  data.records.sort((a,b)=>a.date.localeCompare(b.date));
-  save(); $("dutyForm").reset(); $("date").value=todayLocal(); $("dutyType").value="day";
-  $("inTime").value="08:00"; $("outTime").value="17:00";
-});
-$("clearBtn").onclick=()=>{$("dutyForm").reset();$("date").value=todayLocal();$("dutyType").value="day";$("inTime").value="08:00";$("outTime").value="17:00";};
-
-function monthStats(){
-  const s=settings(), ym=todayLocal().slice(0,7);
-  const rs=data.records.filter(r=>r.date.startsWith(ym));
-  let present=0,absent=0,leave=0,holiday=0,regular=0,ot=0,late=0,night=0,early=false;
-  rs.forEach(r=>{
-    const c=calculate(r);
-    if(r.status==="present"){present++;} else if(r.status==="absent")absent++; else if(["leave","sick"].includes(r.status))leave++; else if(r.status==="holiday")holiday++;
-    regular+=c.regular;ot+=c.ot;late+=c.late;night+=c.night;if(c.early)early=true;
-  });
-  const hourly=(s.salary*0.5605)/(s.salaryDays*s.regularHours);
-  const otRate=hourly*2;
-  const otPay=ot*otRate;
-  const bonus=(late>=s.lateLimit||early)?0:s.attendanceBonus;
-  const total=s.salary+otPay+bonus+night;
-  return {rs,present,absent,leave,holiday,regular,ot,late,night,hourly,otRate,otPay,bonus,total,early};
-}
-function stat(title,value,cls=""){return `<div class="stat"><small>${title}</small><strong class="${cls}">${value}</strong></div>`}
-function render(){
-  const m=monthStats(),s=settings();
-  const eligible=m.bonus>0;
-  $("dashboard").innerHTML=[
-    stat("This month",todayLocal().slice(0,7)),
-    stat("Present",m.present),
-    stat("Holiday",m.holiday),
-    stat("Regular Hours",fmtHours(m.regular)),
-    stat("OT Hours",fmtHours(m.ot)),
-    stat("OT Rate / Hour",money(m.otRate)),
-    stat("OT Wage",money(m.otPay)),
-    stat("Total Late",m.late+" min",m.late>=s.lateLimit?"bad":""),
-    stat("Night Bill",money(m.night)),
-    stat("Attendance Bonus",money(m.bonus),eligible?"ok":"bad"),
-    stat("Total Pay",money(m.total)),
-  ].join("");
-
-  $("records").innerHTML=data.records.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>{
-    const c=calculate(r);
-    return `<tr>
-      <td>${r.date}</td><td>${r.dutyType==="night"?"Night":"Day"}</td><td>${r.status}</td>
-      <td>${r.inTime||"-"}</td><td>${r.outTime||"-"}</td>
-      <td>${fmtHours(c.regular)}</td><td>${fmtHours(c.ot)}</td><td>${c.late}</td>
-      <td>${money(c.night)}</td>
-      <td><button class="mini secondary" onclick="editRecord(${r.id})">Edit</button>
-      <button class="mini danger" onclick="deleteRecord(${r.id})">Delete</button></td>
-    </tr>`;
-  }).join("") || `<tr><td colspan="10">No records yet.</td></tr>`;
-}
-window.editRecord=id=>{
-  const r=data.records.find(x=>x.id===id); if(!r)return;
-  $("date").value=r.date;$("dutyType").value=r.dutyType;$("status").value=r.status;
-  $("inTime").value=r.inTime||"";$("outTime").value=r.outTime||"";$("notes").value=r.notes||"";
-  data.records=data.records.filter(x=>x.id!==id);save();window.scrollTo({top:0,behavior:"smooth"});
-};
-window.deleteRecord=id=>{if(confirm("Delete this record?")){data.records=data.records.filter(x=>x.id!==id);save();}};
-$("clearAllBtn").onclick=()=>{if(confirm("Delete ALL records?")){data.records=[];save();}};
-$("exportBtn").onclick=()=>{
-  const rows=[["Date","Duty Type","Status","In","Out","Regular Hours","OT Hours","Late Minutes","Night Bill","Notes"]];
-  data.records.forEach(r=>{const c=calculate(r);rows.push([r.date,r.dutyType,r.status,r.inTime,r.outTime,c.regular,c.ot,c.late,c.night,r.notes||""])});
-  const csv=rows.map(row=>row.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n");
-  const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="worker-duty-records.csv";a.click();
-};
-function tick(){ $("clock").textContent=new Date().toLocaleString("en-BD",{dateStyle:"medium",timeStyle:"medium"}); }
-setInterval(tick,1000);tick();
-render();
+const KEY="amarOvertime_v2";
+let data=JSON.parse(localStorage.getItem(KEY)||'null');
+if(!data){data={activeWorkerId:1,workers:[{id:1,name:"আমার হিসাব",settings:{}}],records:{1:[]}};}
+if(!Array.isArray(data.workers)||!data.workers.length){data.workers=[{id:1,name:"আমার হিসাব",settings:{}}];data.activeWorkerId=1;}
+data.records=data.records||{};
+const $=id=>document.getElementById(id);const activeWorker=()=>data.workers.find(w=>w.id===data.activeWorkerId)||data.workers[0];
+function workerRecords(){const w=activeWorker();return data.records[w.id]||(data.records[w.id]=[])}
+function save(){localStorage.setItem(KEY,JSON.stringify(data));renderAll()}
+function todayLocal(){const d=new Date(),off=d.getTimezoneOffset();return new Date(d.getTime()-off*60000).toISOString().slice(0,10)}
+function money(n){return "৳"+(Number(n)||0).toFixed(2)}function fmtHours(n){return (Number(n)||0).toFixed(2)}
+function settings(){const w=activeWorker(),s=w.settings||{};return {salary:Number($('salary').value)||0,salaryDays:Number($('salaryDays').value)||26,regularHours:Number($('regularHours').value)||8,otMultiplier:2,attendanceBonus:Number($('attendanceBonus').value)||625,lateLimit:Number($('lateLimit').value)||15,nightBill:Number($('nightBill').value)||100}}
+function loadSettings(){const s=activeWorker().settings||{};for(const k of ['salary','salaryDays','regularHours','otMultiplier','attendanceBonus','lateLimit','nightBill'])if(s[k]!==undefined&&$(k))$(k).value=s[k];if(!$('salary').value)$('salary').value='15000'}
+function persistSettings(){activeWorker().settings=settings();localStorage.setItem(KEY,JSON.stringify(data));renderAll()}
+function minutes(t){const [h,m]=t.split(':').map(Number);return h*60+m}function duration(a,b){let x=minutes(a),y=minutes(b);if(y<=x)y+=1440;return y-x}
+function calculate(r){const s=settings();let regular=0,ot=0,late=0,early=false,night=0;if(['leave','sick','absent'].includes(r.status))return{regular,ot,late,early,night};if(!r.inTime||!r.outTime)return{regular,ot,late,early,night};const total=duration(r.inTime,r.outTime);
+ if(r.dutyType==='night'){if(r.status==='holiday')ot=total/60;else{regular=Math.min(s.regularHours,total/60);ot=Math.max(0,total/60-s.regularHours)}if(minutes(r.outTime)<minutes(r.inTime))night=s.nightBill;
+ }else{const inM=minutes(r.inTime),outM=minutes(r.outTime);if(inM>480)late=inM-480;if(r.status!=='holiday'&&outM<1020)early=true;if(r.status==='holiday')ot=total/60;else{regular=Math.min(s.regularHours,Math.max(0,total/60-1));if(outM>1020)ot=(outM-1020)/60}if(outM<inM)night=s.nightBill}return{regular,ot,late,early,night}}
+function monthStats(){const s=settings(),ym=todayLocal().slice(0,7),rs=workerRecords().filter(r=>r.date.startsWith(ym));let present=0,absent=0,leave=0,holiday=0,regular=0,ot=0,late=0,night=0,early=false;rs.forEach(r=>{const c=calculate(r);if(r.status==='present')present++;else if(r.status==='absent')absent++;else if(['leave','sick'].includes(r.status))leave++;else if(r.status==='holiday')holiday++;regular+=c.regular;ot+=c.ot;late+=c.late;night+=c.night;if(c.early)early=true});const hourly=(s.salary*.5605)/(s.salaryDays*s.regularHours),otRate=hourly*2,otPay=ot*otRate,bonus=(late>=s.lateLimit||early)?0:s.attendanceBonus,total=s.salary+otPay+bonus+night;return{rs,present,absent,leave,holiday,regular,ot,late,night,hourly,otRate,otPay,bonus,total,early}}
+function stat(t,v,cls='',primary=false){return `<div class="stat ${primary?'primary':''}"><small>${t}</small><strong class="${cls}">${v}</strong></div>`}
+function renderDashboard(){const m=monthStats(),s=settings(),w=activeWorker();$('activeWorkerName').textContent=w.name;$('activeWorkerMeta').textContent=`${todayLocal().slice(0,7)} • মাসিক হিসাব`;$('dashboard').innerHTML=[stat('এই মাসের মোট বেতন',money(m.total),'',true),stat('Present',m.present),stat('Regular Hours',fmtHours(m.regular)),stat('OT Hours',fmtHours(m.ot)),stat('OT Rate',money(m.otRate)),stat('OT Wage',money(m.otPay)),stat('Late',m.late+' min',m.late>=s.lateLimit?'bad':''),stat('Night Bill',money(m.night)),stat('Attendance Bonus',money(m.bonus),m.bonus?'ok':'bad')].join('')}
+function renderToday(){const r=workerRecords().find(x=>x.date===todayLocal());if(!r){$('todayCard').innerHTML='<div class="empty">আজকের কোনো ডিউটি সেভ করা হয়নি।</div>';return}const c=calculate(r);$('todayCard').innerHTML=`<div class="today-row"><div><strong>${r.dutyType==='night'?'Night Duty':'Day Duty'}</strong><br><span class="badge ${r.status}">${r.status}</span></div><div><b>OT ${fmtHours(c.ot)} h</b><br><small>${r.inTime||'-'} → ${r.outTime||'-'}</small></div></div>`}
+function renderRecent(){const rs=workerRecords().slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);$('recentRecords').innerHTML=rs.length?rs.map(r=>{const c=calculate(r);return `<div class="record-row" style="padding:10px 0;border-bottom:1px solid #e2e8f0"><div><b>${r.date}</b><br><small>${r.dutyType==='night'?'Night':'Day'} • ${r.status}</small></div><div><b>OT ${fmtHours(c.ot)}h</b><br><small>${money(c.night)}</small></div></div>`}).join(''):'<div class="empty">এখনও কোনো রেকর্ড নেই।</div>'}
+function renderRecords(){const q=($('recordSearch').value||'').toLowerCase();let rs=workerRecords().slice().sort((a,b)=>b.date.localeCompare(a.date));if(q)rs=rs.filter(r=>`${r.date} ${r.status} ${r.dutyType} ${r.notes||''}`.toLowerCase().includes(q));$('recordCount').textContent=`${rs.length}টি রেকর্ড`;$('records').innerHTML=rs.map(r=>{const c=calculate(r);return `<tr><td>${r.date}</td><td>${r.dutyType==='night'?'Night':'Day'}</td><td>${r.status}</td><td>${r.inTime||'-'}</td><td>${r.outTime||'-'}</td><td>${fmtHours(c.regular)}</td><td>${fmtHours(c.ot)}</td><td>${c.late}</td><td>${money(c.night)}</td><td><button class="mini secondary" onclick="editRecord(${r.id})">Edit</button> <button class="mini danger" onclick="deleteRecord(${r.id})">Delete</button></td></tr>`}).join('')||'<tr><td colspan="10" class="empty">কোনো রেকর্ড পাওয়া যায়নি।</td></tr>'}
+function renderWorkers(){const list=$('workerList');list.innerHTML=data.workers.map(w=>`<div class="worker-item"><div><b>${escapeHtml(w.name)}</b><div class="meta">${w.id===data.activeWorkerId?'✓ Active Worker':''}</div></div><div class="worker-actions"><button onclick="selectWorker(${w.id})">${w.id===data.activeWorkerId?'Active':'Select'}</button>${data.workers.length>1?`<button class="danger" onclick="deleteWorker(${w.id})">Delete</button>`:''}</div></div>`).join('')}
+function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
+function renderAll(){loadSettings();renderDashboard();renderToday();renderRecent();renderRecords();renderWorkers()}
+function showPage(id){document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id===id));document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.page===id));window.scrollTo(0,0)}
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(window._toast);window._toast=setTimeout(()=>t.classList.remove('show'),2200)}
+function setDefaults(){if($('date'))$('date').value=todayLocal();$('inTime').value='08:00';$('outTime').value='17:00'}
+$('dutyType').addEventListener('change',()=>{if($('dutyType').value==='day'){$('inTime').value='08:00';$('outTime').value='17:00'}else{$('inTime').value='20:00';$('outTime').value='04:00'}});
+$('dutyForm').addEventListener('submit',e=>{e.preventDefault();const r={id:Date.now(),date:$('date').value,dutyType:$('dutyType').value,status:$('status').value,inTime:$('inTime').value,outTime:$('outTime').value,notes:$('notes').value};const rs=workerRecords(),i=rs.findIndex(x=>x.date===r.date);if(i>=0)rs[i]=r;else rs.push(r);rs.sort((a,b)=>a.date.localeCompare(b.date));save();setDefaults();$('notes').value='';toast('ডিউটি সেভ হয়েছে');showPage('homePage')});
+$('clearBtn').onclick=()=>{$('dutyForm').reset();setDefaults()};
+$('recordSearch').addEventListener('input',renderRecords);['salary','salaryDays','regularHours','otMultiplier','attendanceBonus','lateLimit','nightBill'].forEach(id=>$(id).addEventListener('input',persistSettings));
+$('addWorkerBtn').onclick=()=>{const name=$('workerName').value.trim();if(!name)return toast('Worker-এর নাম দিন');const id=Date.now();data.workers.push({id,name,settings:{}});data.records[id]=[];data.activeWorkerId=id;$('workerName').value='';save();toast('Worker যোগ হয়েছে')};
+window.selectWorker=id=>{data.activeWorkerId=id;save();toast('Active Worker পরিবর্তন হয়েছে');showPage('homePage')};
+window.deleteWorker=id=>{if(data.workers.length<=1)return toast('কমপক্ষে একজন Worker থাকতে হবে');if(!confirm('এই Worker এবং তার সব record মুছবেন?'))return;data.workers=data.workers.filter(w=>w.id!==id);delete data.records[id];data.activeWorkerId=data.workers[0].id;save()};
+window.editRecord=id=>{const r=workerRecords().find(x=>x.id===id);if(!r)return;$('date').value=r.date;$('dutyType').value=r.dutyType;$('status').value=r.status;$('inTime').value=r.inTime||'';$('outTime').value=r.outTime||'';$('notes').value=r.notes||'';data.records[activeWorker().id]=workerRecords().filter(x=>x.id!==id);localStorage.setItem(KEY,JSON.stringify(data));showPage('dutyPage');window.scrollTo(0,0)};
+window.deleteRecord=id=>{if(confirm('এই record মুছবেন?')){data.records[activeWorker().id]=workerRecords().filter(x=>x.id!==id);save();toast('Record মুছে ফেলা হয়েছে')}};
+$('clearAllBtn').onclick=()=>{if(confirm('এই Worker-এর সব record মুছবেন?')){data.records[activeWorker().id]=[];save();toast('সব record মুছে গেছে')}};
+function downloadNative(content,fileName,mime){const bytes=new TextEncoder().encode(content);let bin='';bytes.forEach(b=>bin+=String.fromCharCode(b));const base64=btoa(bin);if(window.AndroidApp&&AndroidApp.saveFile)AndroidApp.saveFile(base64,fileName,mime);else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type:mime}));a.download=fileName;a.click()}}
+$('exportBtn').onclick=()=>{const rows=[['Date','Duty Type','Status','In','Out','Regular Hours','OT Hours','Late Minutes','Night Bill','Notes']];workerRecords().forEach(r=>{const c=calculate(r);rows.push([r.date,r.dutyType,r.status,r.inTime,r.outTime,c.regular,c.ot,c.late,c.night,r.notes||''])});const csv='\ufeff'+rows.map(row=>row.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\n');downloadNative(csv,'amar-overtime-records.csv','text/csv;charset=utf-8');toast('CSV export করা হয়েছে')};
+$('backupBtn').onclick=()=>downloadNative(JSON.stringify(data,null,2),'amar-overtime-backup.json','application/json');
+$('restoreBtn').onclick=()=>{if(window.AndroidApp&&AndroidApp.openBackup)AndroidApp.openBackup();else toast('Android app থেকেই Restore করুন')};
+window.importBackup=json=>{try{const incoming=JSON.parse(json);if(!incoming.workers||!incoming.records)throw Error();data=incoming;localStorage.setItem(KEY,JSON.stringify(data));renderAll();toast('Backup সফলভাবে Restore হয়েছে')}catch(e){toast('Backup ফাইলটি সঠিক নয়')}};
+$('quickWorkerBtn').onclick=()=>showPage('settingsPage');document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));
+function tick(){$('clock').textContent=new Date().toLocaleString('bn-BD',{dateStyle:'medium',timeStyle:'short'})}setInterval(tick,1000);tick();setDefaults();renderAll();

@@ -1,0 +1,14 @@
+<resources>
+    <style name="Theme.AmarOvertime" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">@color/colorAccent</item>
+        <item name="android:statusBarColor">#0F172A</item>
+        <item name="android:navigationBarColor">#07151A</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowSplashScreenBackground">#F7F5EC</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">#F7F5EC</item>
+        <item name="android:windowSplashScreenBrandingImage">@drawable/app_icon</item>
+        <item name="android:windowSplashScreenAnimationDuration">450</item>
+    </style>
+</resources>
